@@ -19,12 +19,14 @@ from djstripe import models, utils
 from djstripe.admin.views import ConfirmCustomAction
 from tests import (
     FAKE_BALANCE_TRANSACTION,
+    FAKE_BANK_ACCOUNT,
     FAKE_CARD_AS_PAYMENT_METHOD,
     FAKE_CHARGE,
     FAKE_CUSTOMER,
     FAKE_INVOICE,
     FAKE_INVOICEITEM,
     FAKE_PAYMENT_INTENT_I,
+    FAKE_PAYOUT_CUSTOM_BANK_ACCOUNT,
     FAKE_PLAN,
     FAKE_PRODUCT,
     FAKE_SUBSCRIPTION,
@@ -515,7 +517,7 @@ class TestConfirmCustomActionView(CreateAccountMixin):
         monkeypatch.setattr(
             stripe.SubscriptionItem, "retrieve", mock_subscriptionitem_get
         )
-        # si_HXZCDv9ixoUB5u
+
         monkeypatch.setattr(stripe.Charge, "retrieve", mock_charge_get)
         monkeypatch.setattr(stripe.PaymentMethod, "retrieve", mock_payment_method_get)
         monkeypatch.setattr(stripe.PaymentIntent, "retrieve", mock_payment_intent_get)
@@ -1073,3 +1075,121 @@ class TestConfirmCustomActionView(CreateAccountMixin):
         with pytest.warns(None, match=r"some random error message"):
             # Invoke the Custom Actions
             view._cancel_subscription_schedule(request, [instance])
+
+    def test__cancel_payout(
+        self,
+        monkeypatch,
+    ):
+        def mock_balance_transaction_get(*args, **kwargs):
+            return FAKE_BALANCE_TRANSACTION
+
+        def mock_customer_get(*args, **kwargs):
+            return FAKE_CUSTOMER
+
+        def mock_bank_account_get(*args, **kwargs):
+            return FAKE_BANK_ACCOUNT
+
+        # monkeypatch stripe retrieve calls to return
+        # the desired json response.
+        monkeypatch.setattr(
+            stripe.BalanceTransaction, "retrieve", mock_balance_transaction_get
+        )
+        monkeypatch.setattr(stripe.Customer, "retrieve", mock_customer_get)
+        monkeypatch.setattr(models.BankAccount, "api_retrieve", mock_bank_account_get)
+
+        model = models.Payout
+        payout_fake = deepcopy(FAKE_PAYOUT_CUSTOM_BANK_ACCOUNT)
+        instance = model.sync_from_stripe_data(payout_fake)
+
+        # monkeypatch payout.cancel()
+        def mock_payout_cancel(*args, **keywargs):
+            return instance
+
+        monkeypatch.setattr(instance, "cancel", mock_payout_cancel)
+
+        data = {"action": "_cancel_payout", helpers.ACTION_CHECKBOX_NAME: [instance.pk]}
+
+        kwargs = {
+            "action_name": "_cancel_payout",
+            "model_name": model.__name__.lower(),
+        }
+
+        # get the custom action POST url
+        change_url = reverse("admin:djstripe_custom_action", kwargs=kwargs)
+
+        request = RequestFactory().post(change_url, data=data, follow=True)
+
+        # Add the session/message middleware to the request
+        SessionMiddleware(self.dummy_get_response).process_request(request)
+        MessageMiddleware(self.dummy_get_response).process_request(request)
+
+        view = ConfirmCustomAction()
+        view.setup(request, **kwargs)
+
+        # Invoke the Custom Actions
+        view._cancel_payout(request, [instance])
+
+        # assert correct Success messages are emmitted
+        messages_sent_dictionary = {
+            m.message: m.level_tag for m in messages.get_messages(request)
+        }
+
+        # assert correct success message was emmitted
+        assert (
+            messages_sent_dictionary.get(f"Successfully Canceled: {instance}")
+            == "success"
+        )
+
+    def test__cancel_payout_stripe_invalid_request_error(
+        self,
+        monkeypatch,
+    ):
+        def mock_balance_transaction_get(*args, **kwargs):
+            return FAKE_BALANCE_TRANSACTION
+
+        def mock_customer_get(*args, **kwargs):
+            return FAKE_CUSTOMER
+
+        def mock_bank_account_get(*args, **kwargs):
+            return FAKE_BANK_ACCOUNT
+
+        # monkeypatch stripe retrieve calls to return
+        # the desired json response.
+        monkeypatch.setattr(
+            stripe.BalanceTransaction, "retrieve", mock_balance_transaction_get
+        )
+        monkeypatch.setattr(stripe.Customer, "retrieve", mock_customer_get)
+        monkeypatch.setattr(models.BankAccount, "api_retrieve", mock_bank_account_get)
+
+        model = models.Payout
+        payout_fake = deepcopy(FAKE_PAYOUT_CUSTOM_BANK_ACCOUNT)
+        instance = model.sync_from_stripe_data(payout_fake)
+
+        # monkeypatch subscription.cancel()
+        def mock_subscription_cancel(*args, **keywargs):
+            raise stripe.error.InvalidRequestError({}, "some random error message")
+
+        monkeypatch.setattr(instance, "cancel", mock_subscription_cancel)
+
+        data = {"action": "_cancel_payout", helpers.ACTION_CHECKBOX_NAME: [instance.pk]}
+
+        kwargs = {
+            "action_name": "_cancel_payout",
+            "model_name": model.__name__.lower(),
+        }
+
+        # get the custom action POST url
+        change_url = reverse("admin:djstripe_custom_action", kwargs=kwargs)
+
+        request = RequestFactory().post(change_url, data=data, follow=True)
+
+        # Add the session/message middleware to the request
+        SessionMiddleware(self.dummy_get_response).process_request(request)
+        MessageMiddleware(self.dummy_get_response).process_request(request)
+
+        view = ConfirmCustomAction()
+        view.setup(request, **kwargs)
+
+        with pytest.warns(None, match=r"some random error message"):
+            # Invoke the Custom Actions
+            view._cancel_payout(request, [instance])

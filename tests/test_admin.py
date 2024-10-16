@@ -1,32 +1,16 @@
-"""
-dj-stripe Admin Tests.
-"""
 
-from copy import deepcopy
-from typing import Sequence
-
-import pytest
-import stripe
-from django.apps import apps
-from django.contrib.admin import helpers, site
-from django.contrib.auth import get_user_model
-from django.core.exceptions import FieldError
-from django.test import TestCase
-from django.test.client import RequestFactory
-from django.urls import reverse
-
-from djstripe import models, utils
-from djstripe.admin import admin as djstripe_admin
-from djstripe.admin.forms import CustomActionForm
 from djstripe.models.account import Account
+from djstripe.models.payment_methods import BankAccount
 from tests import (
     FAKE_BALANCE_TRANSACTION,
+    FAKE_BANK_ACCOUNT,
     FAKE_CARD_AS_PAYMENT_METHOD,
     FAKE_CHARGE,
     FAKE_CUSTOMER,
     FAKE_INVOICE,
     FAKE_INVOICEITEM,
     FAKE_PAYMENT_INTENT_I,
+    FAKE_PAYOUT_CUSTOM_BANK_ACCOUNT,
     FAKE_PLAN,
     FAKE_PRODUCT,
     FAKE_SUBSCRIPTION,
@@ -1205,6 +1189,170 @@ class TestSubscriptionAdminCustomAction(CreateAccountMixin):
         )
 
         data = {"action": "_cancel", helpers.ACTION_CHECKBOX_NAME: [instance.pk]}
+
+        response = admin_client.post(change_url, data)
+
+        # assert user got 200 status code
+        assert response.status_code == 200
+
+
+class TestSubscriptionScheduleAdminCustomAction:
+    def test__release_subscription_schedule(  # noqa: C901
+        self,
+        admin_client,
+        monkeypatch,
+    ):
+        def mock_balance_transaction_get(*args, **kwargs):
+            return FAKE_BALANCE_TRANSACTION
+
+        def mock_subscription_get(*args, **kwargs):
+            return FAKE_SUBSCRIPTION
+
+        def mock_subscriptionitem_get(*args, **kwargs):
+            return FAKE_SUBSCRIPTION_ITEM
+
+        def mock_charge_get(*args, **kwargs):
+            return FAKE_CHARGE
+
+        def mock_payment_method_get(*args, **kwargs):
+            return FAKE_CARD_AS_PAYMENT_METHOD
+
+        def mock_payment_intent_get(*args, **kwargs):
+            return FAKE_PAYMENT_INTENT_I
+
+        def mock_product_get(*args, **kwargs):
+            return FAKE_PRODUCT
+
+        def mock_invoice_get(*args, **kwargs):
+            return FAKE_INVOICE
+
+        def mock_invoice_item_get(*args, **kwargs):
+            return FAKE_INVOICEITEM
+
+        def mock_customer_get(*args, **kwargs):
+            return FAKE_CUSTOMER
+
+        def mock_plan_get(*args, **kwargs):
+            return FAKE_PLAN
+
+        # monkeypatch stripe retrieve calls to return
+        # the desired json response.
+        monkeypatch.setattr(
+            stripe.BalanceTransaction, "retrieve", mock_balance_transaction_get
+        )
+        monkeypatch.setattr(stripe.Subscription, "retrieve", mock_subscription_get)
+        monkeypatch.setattr(
+            stripe.SubscriptionItem, "retrieve", mock_subscriptionitem_get
+        )
+        monkeypatch.setattr(stripe.Charge, "retrieve", mock_charge_get)
+
+        monkeypatch.setattr(stripe.PaymentMethod, "retrieve", mock_payment_method_get)
+        monkeypatch.setattr(stripe.PaymentIntent, "retrieve", mock_payment_intent_get)
+        monkeypatch.setattr(stripe.Product, "retrieve", mock_product_get)
+
+        monkeypatch.setattr(stripe.Invoice, "retrieve", mock_invoice_get)
+        monkeypatch.setattr(stripe.InvoiceItem, "retrieve", mock_invoice_item_get)
+        monkeypatch.setattr(stripe.Customer, "retrieve", mock_customer_get)
+
+        monkeypatch.setattr(stripe.Plan, "retrieve", mock_plan_get)
+
+        # create latest invoice
+        models.Invoice.sync_from_stripe_data(deepcopy(FAKE_INVOICE))
+
+        model = models.SubscriptionSchedule
+        subscription_schedule_fake = deepcopy(FAKE_SUBSCRIPTION_SCHEDULE)
+        instance = model.sync_from_stripe_data(subscription_schedule_fake)
+
+        # get the standard changelist_view url
+        change_url = reverse(
+            f"admin:{model._meta.app_label}_{model.__name__.lower()}_changelist"
+        )
+
+        data = {
+            "action": "_release_subscription_schedule",
+            helpers.ACTION_CHECKBOX_NAME: [instance.pk],
+        }
+
+        response = admin_client.post(change_url, data)
+
+        # assert user got 200 status code
+        assert response.status_code == 200
+
+    def test__cancel_subscription_schedule(  # noqa: C901
+        self,
+        admin_client,
+        monkeypatch,
+    ):
+        def mock_balance_transaction_get(*args, **kwargs):
+            return FAKE_BALANCE_TRANSACTION
+
+        def mock_subscription_get(*args, **kwargs):
+            return FAKE_SUBSCRIPTION
+
+        def mock_subscriptionitem_get(*args, **kwargs):
+            return FAKE_SUBSCRIPTION_ITEM
+
+        def mock_charge_get(*args, **kwargs):
+            return FAKE_CHARGE
+
+        def mock_payment_method_get(*args, **kwargs):
+            return FAKE_CARD_AS_PAYMENT_METHOD
+
+        def mock_payment_intent_get(*args, **kwargs):
+            return FAKE_PAYMENT_INTENT_I
+
+        def mock_product_get(*args, **kwargs):
+            return FAKE_PRODUCT
+
+        def mock_invoice_get(*args, **kwargs):
+            return FAKE_INVOICE
+
+        def mock_invoice_item_get(*args, **kwargs):
+            return FAKE_INVOICEITEM
+
+        def mock_customer_get(*args, **kwargs):
+            return FAKE_CUSTOMER
+
+        def mock_plan_get(*args, **kwargs):
+            return FAKE_PLAN
+
+        # monkeypatch stripe retrieve calls to return
+        # the desired json response.
+        monkeypatch.setattr(
+            stripe.BalanceTransaction, "retrieve", mock_balance_transaction_get
+        )
+        monkeypatch.setattr(stripe.Subscription, "retrieve", mock_subscription_get)
+        monkeypatch.setattr(
+            stripe.SubscriptionItem, "retrieve", mock_subscriptionitem_get
+        )
+        monkeypatch.setattr(stripe.Charge, "retrieve", mock_charge_get)
+
+        monkeypatch.setattr(stripe.PaymentMethod, "retrieve", mock_payment_method_get)
+        monkeypatch.setattr(stripe.PaymentIntent, "retrieve", mock_payment_intent_get)
+        monkeypatch.setattr(stripe.Product, "retrieve", mock_product_get)
+
+        monkeypatch.setattr(stripe.Invoice, "retrieve", mock_invoice_get)
+        monkeypatch.setattr(stripe.InvoiceItem, "retrieve", mock_invoice_item_get)
+        monkeypatch.setattr(stripe.Customer, "retrieve", mock_customer_get)
+
+        monkeypatch.setattr(stripe.Plan, "retrieve", mock_plan_get)
+
+        # create latest invoice
+        models.Invoice.sync_from_stripe_data(deepcopy(FAKE_INVOICE))
+
+        model = models.SubscriptionSchedule
+        subscription_schedule_fake = deepcopy(FAKE_SUBSCRIPTION_SCHEDULE)
+        instance = model.sync_from_stripe_data(subscription_schedule_fake)
+
+        # get the standard changelist_view url
+        change_url = reverse(
+            f"admin:{model._meta.app_label}_{model.__name__.lower()}_changelist"
+        )
+
+        data = {
+            "action": "_cancel_subscription_schedule",
+            helpers.ACTION_CHECKBOX_NAME: [instance.pk],
+        }
 
         response = admin_client.post(change_url, data)
 
